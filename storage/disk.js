@@ -1,3 +1,7 @@
+/**
+ * 重写disk，实现以文件的md5命名
+ * 
+ */
 var fs = require('fs')
 var os = require('os')
 var path = require('path')
@@ -27,7 +31,7 @@ function DiskStorage (opts) {
 
 DiskStorage.prototype._handleFile = function _handleFile (req, file, cb) {
   var that = this
-
+  var hash = crypto.createHash('md5')
   that.getDestination(req, file, function (err, destination) {
     if (err) return cb(err)
 
@@ -37,14 +41,27 @@ DiskStorage.prototype._handleFile = function _handleFile (req, file, cb) {
       var finalPath = path.join(destination, filename)
       var outStream = fs.createWriteStream(finalPath)
 
+      // 监控文件流，计算md5
+      file.stream.on('data', function (chunk) {
+        hash.update(chunk)
+      })
       file.stream.pipe(outStream)
       outStream.on('error', cb)
       outStream.on('finish', function () {
-        cb(null, {
-          destination: destination,
-          filename: filename,
-          path: finalPath,
-          size: outStream.bytesWritten
+        const md5 = hash.digest('hex').toLowerCase();
+        const fileFormat = (file.originalname).split('.');
+        const filename = md5 + '.' + fileFormat[fileFormat.length - 1];
+        const oldPath = finalPath;
+        finalPath = path.join(destination, filename)
+
+        // 计算完成了md5，把文件重命名
+        fs.rename(oldPath, finalPath, () => {
+          cb(null, {
+            destination: destination,
+            filename: filename,
+            path: finalPath,
+            size: outStream.bytesWritten
+          })
         })
       })
     })
